@@ -1,0 +1,198 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>VC OCR Scanner — Dashboard</title>
+    <link rel="stylesheet" href="{% static 'vc_app/style.css' %}"/>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="navbar-brand">VC OCR Scanner</div>
+    <div class="navbar-links">
+        <a href="/" class="active">Dashboard</a>
+        <a href="/upload/">Upload Card</a>
+    </div>
+</nav>
+
+<div class="page">
+
+    <!-- Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Contacts</div>
+            <div class="stat-value" id="stat-total">—</div>
+        </div>
+        <div class="stat-card dup">
+            <div class="stat-label">Duplicates Found</div>
+            <div class="stat-value" id="stat-dups">—</div>
+        </div>
+        <div class="stat-card conf">
+            <div class="stat-label">Avg Confidence</div>
+            <div class="stat-value" id="stat-conf">—</div>
+        </div>
+        <div class="stat-card today">
+            <div class="stat-label">Added Today</div>
+            <div class="stat-value" id="stat-today">—</div>
+        </div>
+    </div>
+
+    <!-- Table card -->
+    <div class="card">
+        <div class="page-header" style="margin-bottom:1rem;">
+            <div class="page-title">
+                Contacts
+                <small id="contact-count"></small>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <div class="search-bar">
+                    <input type="text" id="search-input" placeholder="Search name, company..." style="padding-left:14px;"/>
+                </div>
+                <a href="/upload/" class="btn btn-primary">Scan Card</a>
+            </div>
+        </div>
+
+        <div id="alert-box" class="alert"></div>
+
+        <div class="table-wrap">
+            <table id="contacts-table">
+                <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Company</th>
+                    <th>Mobile</th>
+                    <th>Email</th>
+                    <th>Confidence</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+                </thead>
+                <tbody id="table-body">
+                <tr>
+                    <td colspan="8" class="no-results">Loading...</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="empty-state" class="empty-state" style="display:none;">
+            <h3>No contacts yet</h3>
+            <p>Upload a visiting card to get started.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allContacts = [];
+
+    async function loadContacts() {
+        try {
+            const res = await fetch('/api/v1/contacts/');
+            const data = await res.json();
+            allContacts = data.results || [];
+            renderStats(allContacts);
+            renderTable(allContacts);
+        } catch (e) {
+            showAlert('Failed to load contacts. Is the server running?', 'error');
+        }
+    }
+
+    function renderStats(contacts) {
+        const today = new Date().toISOString().slice(0, 10);
+        document.getElementById('stat-total').textContent = contacts.length;
+        document.getElementById('stat-dups').textContent = contacts.filter(c => c.is_duplicate).length;
+        const avgConf = contacts.length
+            ? (contacts.reduce((s, c) => s + parseFloat(c.confidence_score || 0), 0) / contacts.length).toFixed(1) + '%'
+            : '—';
+        document.getElementById('stat-conf').textContent = avgConf;
+        document.getElementById('stat-today').textContent = contacts.filter(c => c.created_at?.startsWith(today)).length;
+    }
+
+    function confBadge(score) {
+        const n = parseFloat(score);
+        if (n >= 80) return `<span class="badge badge-conf-hi">${n.toFixed(0)}%</span>`;
+        if (n >= 50) return `<span class="badge badge-conf-md">${n.toFixed(0)}%</span>`;
+        return `<span class="badge badge-conf-lo">${n.toFixed(0)}%</span>`;
+    }
+
+    function renderTable(contacts) {
+        const tbody = document.getElementById('table-body');
+        const empty = document.getElementById('empty-state');
+        const count = document.getElementById('contact-count');
+
+        count.textContent = `(${contacts.length})`;
+
+        if (contacts.length === 0) {
+            tbody.innerHTML = '';
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        tbody.innerHTML = contacts.map((c, i) => `
+            <tr>
+                <td style="color:#aaa;font-size:0.8rem;">${i + 1}</td>
+                <td class="td-name">${esc(c.name)}</td>
+                <td class="td-company">${esc(c.company_name || '—')}</td>
+                <td>${esc(c.mobile || '—')}</td>
+                <td class="td-email">${esc(c.email || '—')}</td>
+                <td>${confBadge(c.confidence_score)}</td>
+                <td>
+                    ${c.is_duplicate
+            ? '<span class="badge badge-dup">Duplicate</span>'
+            : '<span class="badge badge-new">New</span>'}
+                </td>
+                <td>
+                    <div class="actions">
+                        <a href="/contact/${c.id}/" class="btn btn-outline" style="padding:6px 12px;font-size:0.8rem;">View</a>
+                        <button onclick="deleteContact(${c.id}, this)" class="btn btn-danger" style="padding:6px 12px;font-size:0.8rem;">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function deleteContact(id, btn) {
+        if (!confirm('Delete this contact?')) return;
+        btn.disabled = true;
+        try {
+            await fetch(`/api/v1/contact/${id}/delete/`, {method: 'DELETE'});
+            allContacts = allContacts.filter(c => c.id !== id);
+            renderStats(allContacts);
+            renderTable(allContacts);
+        } catch (e) {
+            showAlert('Delete failed.', 'error');
+        }
+    }
+
+    function showAlert(msg, type) {
+        const box = document.getElementById('alert-box');
+        box.textContent = msg;
+        box.className = `alert alert-${type} show`;
+        setTimeout(() => box.classList.remove('show'), 4000);
+    }
+
+    function esc(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    document.getElementById('search-input').addEventListener('input', function () {
+        const q = this.value.toLowerCase();
+        const filtered = allContacts.filter(c =>
+            (c.name || '').toLowerCase().includes(q) ||
+            (c.company_name || '').toLowerCase().includes(q) ||
+            (c.mobile || '').toLowerCase().includes(q) ||
+            (c.email || '').toLowerCase().includes(q)
+        );
+        renderTable(filtered);
+    });
+
+    loadContacts();
+</script>
+</body>
+</html>

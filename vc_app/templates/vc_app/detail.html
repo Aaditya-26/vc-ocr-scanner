@@ -1,0 +1,234 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>VC OCR Scanner — Contact Detail</title>
+    <link rel="stylesheet" href="{% static 'vc_app/style.css' %}"/>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="navbar-brand">VC OCR Scanner</div>
+    <div class="navbar-links">
+        <a href="/">Dashboard</a>
+        <a href="/upload/">Upload Card</a>
+    </div>
+</nav>
+
+<div class="page">
+
+    <div class="page-header">
+        <div class="page-title" id="page-heading">Contact Detail</div>
+        <a href="/" class="btn btn-outline">Back</a>
+    </div>
+
+    <div id="alert-box" class="alert"></div>
+    <div id="dup-warn" class="alert alert-warning" style="display:none;">
+        This contact was flagged as a <strong>duplicate</strong> — another contact has the same email or mobile.
+    </div>
+
+    <div class="detail-grid" id="detail-content" style="display:none;">
+
+        <!-- Left: image + raw OCR -->
+        <div>
+            <div class="card detail-image">
+                <h4 style="margin-bottom:10px;font-size:0.9rem;color:#888;text-transform:uppercase;letter-spacing:0.05em;">
+                    Uploaded Card</h4>
+                <img id="card-image" src="" alt="Visiting card"/>
+                <h4 style="margin:14px 0 6px;font-size:0.85rem;color:#888;text-transform:uppercase;letter-spacing:0.05em;">
+                    Raw OCR Text</h4>
+                <div class="ocr-text" id="ocr-text"></div>
+            </div>
+
+            <div class="card" style="margin-top:1rem;">
+                <div class="conf-bar-wrap">
+                    <div class="conf-bar-label">OCR Confidence: <strong id="conf-label">—</strong></div>
+                    <div class="conf-bar-bg">
+                        <div class="conf-bar" id="conf-bar" style="width:0%;background:#22c55e;"></div>
+                    </div>
+                </div>
+                <p style="font-size:0.8rem;color:#aaa;margin-top:6px;">Scanned on: <span id="created-at">—</span></p>
+            </div>
+        </div>
+
+        <!-- Right: editable fields -->
+        <div class="card">
+            <h3 style="margin-bottom:1.2rem;">Edit Extracted Fields</h3>
+
+            <div class="form-group">
+                <label class="form-label">Full Name *</label>
+                <input type="text" class="form-control" id="f-name" placeholder="Full name"/>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Designation</label>
+                <input type="text" class="form-control" id="f-designation" placeholder="Job title"/>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Company</label>
+                <input type="text" class="form-control" id="f-company" placeholder="Company name"/>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                <div class="form-group">
+                    <label class="form-label">Mobile</label>
+                    <input type="text" class="form-control" id="f-mobile" placeholder="+91 XXXXXXXXXX"/>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-control" id="f-email" placeholder="email@example.com"/>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Website</label>
+                <input type="text" class="form-control" id="f-website" placeholder="www.example.com"/>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Address</label>
+                <textarea class="form-control" id="f-address" placeholder="Full address"></textarea>
+            </div>
+
+            <div class="form-actions">
+                <button class="btn btn-success" id="save-btn" onclick="saveContact()">Save Changes</button>
+                <button class="btn btn-outline" onclick="resetForm()">Reset</button>
+                <button class="btn btn-danger" id="del-btn" onclick="deleteContact()" style="margin-left:auto;">Delete</button>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="loading-state" class="empty-state">
+        <h3>Loading contact...</h3>
+    </div>
+</div>
+
+<script>
+    const CONTACT_ID = {{ contact_id }};
+
+    async function loadContact() {
+        try {
+            const res = await fetch(`/api/v1/contact/${CONTACT_ID}/`);
+            if (!res.ok) throw new Error('Status ' + res.status);
+            const c = await res.json();
+            populateForm(c);
+        } catch (e) {
+            document.getElementById('loading-state').innerHTML = `
+            <h3>Error: ${e.message}</h3>
+            <p><a href="/" style="color:#4f8ef7;">Back to dashboard</a></p>`;
+        }
+    }
+
+    function populateForm(c) {
+        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('detail-content').style.display = 'grid';
+        document.getElementById('page-heading').textContent = c.name || 'Contact Detail';
+
+        const imgEl = document.getElementById('card-image');
+        if (c.image_path) {
+            imgEl.src = `/media/${c.image_path}`;
+        } else {
+            imgEl.style.display = 'none';
+        }
+
+        document.getElementById('ocr-text').textContent = c.raw_text || '(no raw text)';
+
+        const conf = parseFloat(c.confidence_score || 0);
+        document.getElementById('conf-label').textContent = conf.toFixed(1) + '%';
+        const bar = document.getElementById('conf-bar');
+        bar.style.width = conf + '%';
+        bar.style.background = conf >= 80 ? '#22c55e' : conf >= 50 ? '#f59e0b' : '#ef4444';
+
+        document.getElementById('created-at').textContent = new Date(c.created_at).toLocaleString();
+
+        if (c.is_duplicate) document.getElementById('dup-warn').style.display = 'block';
+
+        document.getElementById('f-name').value = c.name || '';
+        document.getElementById('f-designation').value = c.designation || '';
+        document.getElementById('f-company').value = c.company_name || '';
+        document.getElementById('f-mobile').value = c.mobile || '';
+        document.getElementById('f-email').value = c.email || '';
+        document.getElementById('f-website').value = c.website || '';
+        document.getElementById('f-address').value = c.address || '';
+    }
+
+    async function saveContact() {
+        const btn = document.getElementById('save-btn');
+        btn.disabled = true;
+        btn.innerHTML = 'Saving...';
+
+        const payload = {
+            name: document.getElementById('f-name').value.trim(),
+            designation: document.getElementById('f-designation').value.trim(),
+            company_name: document.getElementById('f-company').value.trim(),
+            mobile: document.getElementById('f-mobile').value.trim(),
+            email: document.getElementById('f-email').value.trim(),
+            website: document.getElementById('f-website').value.trim(),
+            address: document.getElementById('f-address').value.trim(),
+        };
+
+        if (!payload.name) {
+            showAlert('Name is required.', 'error');
+            btn.disabled = false;
+            btn.innerHTML = 'Save Changes';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/v1/contact/${CONTACT_ID}/`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showAlert('Contact updated successfully!', 'success');
+                document.getElementById('page-heading').textContent = data.name;
+            } else {
+                showAlert(JSON.stringify(data), 'error');
+            }
+        } catch (e) {
+            showAlert('Save failed.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = 'Save Changes';
+        }
+    }
+
+    async function deleteContact() {
+        if (!confirm('Are you sure you want to delete this contact?')) return;
+        try {
+            await fetch(`/api/v1/contact/${CONTACT_ID}/delete/`, {
+                method: 'DELETE',
+                headers: {'X-CSRFToken': getCsrf()},
+            });
+            window.location.href = '/';
+        } catch (e) {
+            showAlert('Delete failed.', 'error');
+        }
+    }
+
+    function showAlert(msg, type) {
+        const box = document.getElementById('alert-box');
+        box.textContent = msg;
+        box.className = `alert alert-${type} show`;
+        setTimeout(() => box.classList.remove('show'), 5000);
+    }
+
+    function getCsrf() {
+        const cookie = document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='));
+        return cookie ? cookie.split('=')[1] : '';
+    }
+
+    function resetForm() {
+        loadContact();
+    }
+
+    loadContact();
+</script>
+</body>
+</html>

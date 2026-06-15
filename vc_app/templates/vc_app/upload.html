@@ -1,0 +1,190 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>VC OCR Scanner — Upload</title>
+    <link rel="stylesheet" href="{% static 'vc_app/style.css' %}"/>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="navbar-brand">VC OCR Scanner</div>
+    <div class="navbar-links">
+        <a href="/">Dashboard</a>
+        <a href="/upload/" class="active">Upload Card</a>
+    </div>
+</nav>
+
+<div class="page" style="max-width:680px;">
+
+    <div class="page-header">
+        <div class="page-title">Scan a Visiting Card</div>
+    </div>
+
+    <div id="alert-box" class="alert"></div>
+
+    <div class="card">
+
+        <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">
+            <h3>Click or drag and drop an image here</h3>
+            <p>Supports JPG, JPEG, PNG, PDF</p>
+            <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.pdf"/>
+        </div>
+
+        <div class="preview-wrap" id="preview-wrap" style="display:none;">
+            <img id="preview-img" src="" alt="Card preview"/>
+            <p style="margin-top:8px;font-size:0.85rem;color:#888;" id="file-name-label"></p>
+        </div>
+
+        <div style="margin-top:1.5rem;display:flex;gap:10px;">
+            <button class="btn btn-primary" id="upload-btn" disabled onclick="uploadCard()">
+                Extract and Save
+            </button>
+            <button class="btn btn-outline" onclick="resetForm()">Reset</button>
+        </div>
+
+    </div>
+
+    <div class="card" id="result-card" style="display:none;margin-top:1.5rem;">
+        <h3 style="margin-bottom:1rem;color:#22c55e;">Card processed successfully!</h3>
+
+        <div id="result-duplicate-warn" class="alert alert-warning" style="margin-bottom:1rem;"></div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;" id="result-fields"></div>
+
+        <div style="margin-top:1.2rem;display:flex;gap:10px;">
+            <a id="view-contact-btn" href="#" class="btn btn-success">View Full Detail</a>
+            <button class="btn btn-outline" onclick="resetForm()">Scan Another</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadBtn = document.getElementById('upload-btn');
+    let selectedFile = null;
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files[0]) handleFile(fileInput.files[0]);
+    });
+
+    dropZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+
+    function handleFile(file) {
+        selectedFile = file;
+        uploadBtn.disabled = false;
+        document.getElementById('file-name-label').textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+
+        if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                document.getElementById('preview-img').src = e.target.result;
+                document.getElementById('preview-wrap').style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        } else {
+            document.getElementById('preview-wrap').style.display = 'block';
+            document.getElementById('preview-img').style.display = 'none';
+        }
+    }
+
+    async function uploadCard() {
+        if (!selectedFile) return;
+
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = 'Processing OCR...';
+
+        const formData = new FormData();
+        formData.append('image', selectedFile);
+
+        try {
+            const res = await fetch('/api/v1/visiting-card/upload/', {method: 'POST', body: formData});
+            const data = await res.json();
+
+            if (!res.ok) {
+                showAlert(data.error || 'Upload failed.', 'error');
+                return;
+            }
+
+            showResult(data);
+        } catch (e) {
+            showAlert('Network error. Make sure the server is running.', 'error');
+        } finally {
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = 'Extract and Save';
+        }
+    }
+
+    function showResult(c) {
+        document.getElementById('result-card').style.display = 'block';
+        document.getElementById('view-contact-btn').href = `/contact/${c.id}/`;
+
+        const dupWarn = document.getElementById('result-duplicate-warn');
+        if (c.is_duplicate) {
+            dupWarn.textContent = 'A contact with this email or mobile already exists. Saved as duplicate.';
+            dupWarn.style.display = 'block';
+        } else {
+            dupWarn.style.display = 'none';
+        }
+
+        const fields = [
+            ['Name', c.name],
+            ['Designation', c.designation],
+            ['Company', c.company_name],
+            ['Mobile', c.mobile],
+            ['Email', c.email],
+            ['Website', c.website],
+            ['Address', c.address],
+            ['Confidence', c.confidence_score + '%'],
+        ];
+
+        document.getElementById('result-fields').innerHTML = fields.map(([label, val]) => `
+            <div style="background:#f8f9ff;border-radius:8px;padding:10px 14px;">
+                <div style="font-size:0.75rem;color:#888;margin-bottom:3px;">${label}</div>
+                <div style="font-weight:600;font-size:0.95rem;">${esc(val || '—')}</div>
+            </div>
+        `).join('');
+
+        window.scrollTo({top: document.getElementById('result-card').offsetTop - 20, behavior: 'smooth'});
+    }
+
+    function resetForm() {
+        selectedFile = null;
+        fileInput.value = '';
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = 'Extract and Save';
+        document.getElementById('preview-wrap').style.display = 'none';
+        document.getElementById('preview-img').style.display = 'block';
+        document.getElementById('preview-img').src = '';
+        document.getElementById('file-name-label').textContent = '';
+        document.getElementById('result-card').style.display = 'none';
+        document.getElementById('alert-box').className = 'alert';
+        document.getElementById('alert-box').textContent = '';
+    }
+
+    function showAlert(msg, type) {
+        const box = document.getElementById('alert-box');
+        box.textContent = msg;
+        box.className = `alert alert-${type} show`;
+        setTimeout(() => box.classList.remove('show'), 5000);
+    }
+
+    function esc(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+</script>
+</body>
+</html>
