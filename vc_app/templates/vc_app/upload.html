@@ -5,6 +5,7 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>VC OCR Scanner — Upload</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="{% static 'vc_app/style.css' %}"/>
 </head>
 <body>
@@ -101,6 +102,12 @@
         }
     }
 
+    // FIX: read Django's csrftoken cookie for all mutating requests
+    function getCookie(name) {
+        const match = document.cookie.match('(?:^|;) *' + name + '=([^;]*)');
+        return match ? decodeURIComponent(match[1]) : '';
+    }
+
     async function uploadCard() {
         if (!selectedFile) return;
 
@@ -111,7 +118,12 @@
         formData.append('image', selectedFile);
 
         try {
-            const res = await fetch('/api/v1/visiting-card/upload/', {method: 'POST', body: formData});
+            // X-CSRFToken header required — missing header was causing every upload to 403
+            const res = await fetch('/api/v1/visiting-card/upload/', {
+                method: 'POST',
+                headers: {'X-CSRFToken': getCookie('csrftoken')},
+                body: formData,
+            });
             const data = await res.json();
 
             if (!res.ok) {

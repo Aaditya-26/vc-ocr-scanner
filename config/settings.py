@@ -55,8 +55,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'vc_ocr_db',
-        'USER': 'root',
-        'PASSWORD': 'your_password_here',
+        'USER': 'vc_user',
+        'PASSWORD': 'Vcocr@123',
         'HOST': 'localhost',
         'PORT': '3306',
     }

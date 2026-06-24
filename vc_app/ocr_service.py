@@ -16,10 +16,27 @@ def get_reader():
     return _reader
 
 
+def _load_image(image_path: str) -> Image.Image:
+    if image_path.lower().endswith('.pdf'):
+        try:
+            from pdf2image import convert_from_path
+        except ImportError:
+            raise RuntimeError(
+                "pdf2image is not installed. Run: pip install pdf2image "
+                "and make sure poppler is available (apt install poppler-utils)."
+            )
+        pages = convert_from_path(image_path, dpi=200, first_page=1, last_page=1)
+        if not pages:
+            raise RuntimeError("PDF appears to be empty — no pages could be rendered.")
+        return pages[0].convert('RGB')
+
+    return Image.open(image_path).convert('RGB')
+
+
 def process_visiting_card(image_path: str) -> dict:
     reader = get_reader()
 
-    img = Image.open(image_path).convert('RGB')
+    img = _load_image(image_path)
     img_array = np.array(img, dtype=np.uint8)
 
     results = reader.readtext(img_array, detail=1)

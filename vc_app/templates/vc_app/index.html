@@ -5,6 +5,7 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>VC OCR Scanner — Dashboard</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="{% static 'vc_app/style.css' %}"/>
 </head>
 <body>
@@ -88,6 +89,12 @@
 <script>
     let allContacts = [];
 
+    // shared CSRF helper for all mutating fetch calls
+    function getCookie(name) {
+        const match = document.cookie.match('(?:^|;) *' + name + '=([^;]*)');
+        return match ? decodeURIComponent(match[1]) : '';
+    }
+
     async function loadContacts() {
         try {
             const res = await fetch('/api/v1/contacts/');
@@ -159,12 +166,17 @@
         if (!confirm('Delete this contact?')) return;
         btn.disabled = true;
         try {
-            await fetch(`/api/v1/contact/${id}/delete/`, {method: 'DELETE'});
+            // X-CSRFToken header added
+            await fetch(`/api/v1/contact/${id}/delete/`, {
+                method: 'DELETE',
+                headers: {'X-CSRFToken': getCookie('csrftoken')},
+            });
             allContacts = allContacts.filter(c => c.id !== id);
             renderStats(allContacts);
             renderTable(allContacts);
         } catch (e) {
             showAlert('Delete failed.', 'error');
+            btn.disabled = false;
         }
     }
 

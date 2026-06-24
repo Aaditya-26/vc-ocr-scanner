@@ -4,6 +4,8 @@ import uuid
 from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, render
+from PIL import Image, UnidentifiedImageError
+from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,7 +33,7 @@ def detail_page(request, pk):
 # ─── REST API views ─────────────────────────────────────────────────────────
 
 class VisitingCardUploadView(APIView):
-    """POST /api/v1/visiting-card/upload"""
+    """POST /api/v1/visiting-card/upload/"""
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
@@ -46,7 +48,6 @@ class VisitingCardUploadView(APIView):
                 status=400,
             )
 
-        # Save the uploaded file
         filename = f'{uuid.uuid4()}.{ext}'
         save_dir = os.path.join(settings.MEDIA_ROOT, 'vc_images')
         os.makedirs(save_dir, exist_ok=True)
@@ -56,13 +57,23 @@ class VisitingCardUploadView(APIView):
             for chunk in file.chunks():
                 dest.write(chunk)
 
+        # verify the file is actually a valid image, not just a renamed binary
+        if ext != 'pdf':
+            try:
+                with Image.open(save_path) as img:
+                    img.verify()
+            except (UnidentifiedImageError, Exception):
+                os.remove(save_path)
+                return Response({'error': 'File is not a valid image.'}, status=400)
+
         # Run OCR
         try:
             data = process_visiting_card(save_path)
         except Exception as exc:
+            # clean up saved file on OCR failure to avoid disk leaks
+            os.remove(save_path)
             return Response({'error': f'OCR failed: {str(exc)}'}, status=500)
 
-        # Duplicate detection — check email OR mobile
         email = data.get('email')
         mobile = data.get('mobile')
         is_dup = False
@@ -74,7 +85,6 @@ class VisitingCardUploadView(APIView):
                 q |= Q(mobile=mobile)
             is_dup = ContactMaster.objects.filter(q).exists()
 
-        # Relative path stored in DB (served via MEDIA_URL)
         rel_path = os.path.join('vc_images', filename)
 
         contact = ContactMaster.objects.create(
@@ -94,7 +104,7 @@ class VisitingCardUploadView(APIView):
 
 
 class ContactListView(APIView):
-    """GET /api/v1/contacts"""
+    """GET /api/v1/contacts/"""
 
     def get(self, request):
         contacts = ContactMaster.objects.all()
@@ -106,7 +116,7 @@ class ContactListView(APIView):
 
 
 class ContactDetailView(APIView):
-    """GET /api/v1/contact/<id>   PUT /api/v1/contact/<id>"""
+    """GET /api/v1/contact/<id>/   PUT /api/v1/contact/<id>/"""
 
     def get(self, request, pk):
         contact = get_object_or_404(ContactMaster, pk=pk)
@@ -117,14 +127,17 @@ class ContactDetailView(APIView):
         serializer = ContactUpdateSerializer(contact, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+            # refresh so updated_at and any other auto fields are current in the response
+            contact.refresh_from_db()
             return Response(ContactSerializer(contact).data)
         return Response(serializer.errors, status=400)
 
 
 class ContactDeleteView(APIView):
-    """DELETE /api/v1/contact/<id>/delete"""
+    """DELETE /api/v1/contact/<id>/delete/"""
 
     def delete(self, request, pk):
         contact = get_object_or_404(ContactMaster, pk=pk)
         contact.delete()
-        return Response({'message': 'Contact deleted.'}, status=200)
+        # 204 No Content is the correct REST status for a successful delete
+        return Response(status=status.HTTP_204_NO_CONTENT)
