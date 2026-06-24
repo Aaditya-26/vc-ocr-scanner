@@ -127,7 +127,6 @@ class ContactDetailView(APIView):
         serializer = ContactUpdateSerializer(contact, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            # refresh so updated_at and any other auto fields are current in the response
             contact.refresh_from_db()
             return Response(ContactSerializer(contact).data)
         return Response(serializer.errors, status=400)
@@ -139,5 +138,4 @@ class ContactDeleteView(APIView):
     def delete(self, request, pk):
         contact = get_object_or_404(ContactMaster, pk=pk)
         contact.delete()
-        # 204 No Content is the correct REST status for a successful delete
         return Response(status=status.HTTP_204_NO_CONTENT)

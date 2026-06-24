@@ -102,7 +102,6 @@
         }
     }
 
-    // FIX: read Django's csrftoken cookie for all mutating requests
     function getCookie(name) {
         const match = document.cookie.match('(?:^|;) *' + name + '=([^;]*)');
         return match ? decodeURIComponent(match[1]) : '';
@@ -118,7 +117,6 @@
         formData.append('image', selectedFile);
 
         try {
-            // X-CSRFToken header required — missing header was causing every upload to 403
             const res = await fetch('/api/v1/visiting-card/upload/', {
                 method: 'POST',
                 headers: {'X-CSRFToken': getCookie('csrftoken')},
